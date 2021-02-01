@@ -1,0 +1,252 @@
+/*REXX*/                                                                       
+/* PROGRAM TO UPDATE JOBNAME, PROGRAMMER NAME & DATE */                        
+/* TO ALL MEMBERS IN A JCL AS PER USER SPECIFICATION */                        
+"ISPEXEC LIBDEF ISPPLIB DATASET ID('CAT.SAVVXM.UPD.ISPPLIB')"                  
+"ISPEXEC DISPLAY PANEL(TC05MENU)"                                              
+/*************************************************************************/    
+/* Menu selection process                                                */    
+/*************************************************************************/    
+IF ZCMD = '' THEN DO                                                           
+ SAY 'YOU MUST SELECT MENU.........PLEASE TRY AGAIN! '                         
+ "ISPEXEC DISPLAY PANEL(TC05MENU)"                                             
+   END                                                                         
+IF ZCMD = 'AUTOMATE' THEN DO                                                   
+ SAY 'YOU HAVE SUCCESSFULLY AUTOMATED PROCESS, THANK YOU!'                     
+ CALL AUTOMATE                                                                 
+   END                                                                         
+                                                                               
+ IF ZCMD = 'CANCEL' THEN DO                                                    
+ SAY 'GOOD BYE'                                                                
+ END   
+ IF RC ^= 0 THEN DO                                                             
+    EXIT (0)             /**** PF3 WAS PRESSED ****/                            
+    END                                                                         
+                                                                                
+                                                                                
+/***************************************************************************/   
+/* Accept match process                                                    */   
+/***************************************************************************/   
+AUTOMATE:                                                                       
+DSN = STRIP(DSNAME)                                                             
+DSN1 = "'"CAT.SAVVXM.UPD.JCLLIB.TC05LOAD.TEMPLATE"'"                            
+DSN2 = "'"DSN"'"                                                                
+USRID = USERID()                                                                
+                                                                                
+CALL CHECK_NEWPDS_PROCESS                                                       
+CALL LIST_MEMBERS_PROCESS                                                       
+CALL UPDATE_MEMBERS_PROCESS                                                     
+EXIT                                                                            
+CHECK_NEWPDS_PROCESS:                                                           
+ IF SYSDSN(DSN2) = "OK" THEN                                                    
+  DO                                                                            
+    CALL COPY_PARA_PROCESS                                                      
+  END                                                                           
+ ELSE                                                                           
+  DO                                                                            
+    CALL CREATE_NEWPDS_PROCESS                                                  
+    CALL COPY_PARA_PROCESS                                                      
+  END                                                                           
+RETURN                                                                          
+/***************************************************************************/   
+/* Allocate a new data set                                                 */   
+/***************************************************************************/   
+                                                                                
+  CREATE_NEWPDS_PROCESS:                                                        
+  ADDRESS TSO                                                                   
+  "ALLOC DATASET("DSN2") LIKE("DSN1") SPACE(10,20) TRACKS"                      
+  RETURN                                                                        
+                                                                                
+/***************************************************************************/   
+/* Copy members from input to output                                       */   
+/***************************************************************************/   
+COPY_PARA_PROCESS:                                                              
+"ISPEXEC LMINIT DATAID(INDD1) DATASET("DSN1") ENQ(SHR)"                         
+"ISPEXEC LMINIT DATAID(OUTDD1) DATASET("DSN2") ENQ(SHR)"                        
+"ISPEXEC LMCOPY FROMID("INDD1") TODATAID("OUTDD1") FROMMEM(*) REPLACE"          
+"ISPEXEC LMCLOSE DATAID("INDD1")"                                               
+"ISPEXEC LMCLOSE DATAID("OUTDD1")"                                              
+"ISPEXEC LMFREE DATAID("INDD1")"                                                
+"ISPEXEC LMFREE DATAID("OUTDD1")"                                               
+RETURN                                                                          
+                                                                                
+/**************************************************************************/    
+/* Displays the member names from a PDS                                   */    
+/**************************************************************************/    
+LIST_MEMBERS_PROCESS:                                                           
+X=OUTTRAP('CAP.')                                                               
+ ADDRESS TSO "LISTDS "DSN2" MEMBERS"                                            
+X=OUTTRAP('OFF')                                                                
+RETURN                                                                          
+/***************************************************************************/ 
+/* String updating pocess                                                  */ 
+/***************************************************************************/ 
+UPDATE_MEMBERS_PROCESS:                                                       
+/****************************************************************************/
+/* Process the members                                                      */
+/****************************************************************************/
+"ISPEXEC LMINIT DATAID("ID1") DATASET("DSN2") ENQ(SHR)"                       
+DO MEM = 7 TO CAP.0                                                           
+  MEMBER = STRIP(CAP.MEM)                                                     
+  DS = DSN"("MEMBER")"                                                        
+  LINE. = ""                                                                  
+  DATE1 = "D"MMDD                                                             
+  ADDRESS TSO                                                                 
+/****************************************************************************/
+/* Allocate each member to input                                            */
+/****************************************************************************/
+  "ALLOC FI(IN) DA('"DS"') SHR REUSE"                                         
+/****************************************************************************/ 
+/*Read each member into a stem                                              */ 
+/****************************************************************************/ 
+  "EXECIO * DISKR IN (STEM LINE. FINIS"                                        
+/****************************************************************************/ 
+/* Free the input member                                                    */ 
+/****************************************************************************/ 
+  "FREE F(IN)"                                                                 
+  DO CNT = 1 TO LINE.0                                                         
+    JOBPOS = POS('RACFID1',LINE.CNT)                                           
+    JOBPOS2 = POS('RACFID1',LINE.CNT,8)                                        
+    PROGNAME = POS('PROGNAME',LINE.CNT)                                        
+    INITIALS = POS('XXX',LINE.CNT)                                             
+    LEN1 = 8                                                                   
+    DPOS1 = POS(NDATE,LINE.CNT)                                                
+    DPOS2 = POS(ADATE,LINE.CNT)                                                
+    IF INITIALS > 0 THEN                                                       
+      LINE.CNT = OVERLAY(NIN,LINE.CNT,INITIALS)                                
+    IF JOBPOS > 0 THEN                                                         
+      LINE.CNT = OVERLAY(NJBNAME,LINE.CNT,JOBPOS)                              
+    IF JOBPOS2 > 0 THEN                                                        
+      LINE.CNT = OVERLAY(NJBNAME,LINE.CNT,JOBPOS2)                             
+    IF PROGNAME > 0 THEN                                                       
+      DO                                                                       
+        LINE.CNT = DELSTR(LINE.CNT,PROGNAME,LEN1)                              
+        LINE.CNT = INSERT(NPROGRAM,LINE.CNT,PROGNAME-1)                        
+      END                                                                      
+    IF DPOS1 > 0 THEN                                                          
+      LINE.CNT = OVERLAY(DATE1,LINE.CNT,DPOS1)                                 
+    IF DPOS2 > 0 THEN                                                          
+      LINE.CNT = OVERLAY(MMMDD,LINE.CNT,DPOS2)                                 
+    END                                                                        
+/****************************************************************************/ 
+/* Allocate each member to output                                           */ 
+/****************************************************************************/ 
+    "ALLOC FI(OUT) DA('"DS"') SHR REUSE"                                       
+/****************************************************************************/ 
+/* Write each member to the file                                            */ 
+/****************************************************************************/ 
+    "EXECIO * DISKW OUT (STEM LINE. FINIS"                                     
+/****************************************************************************/ 
+/* Free the output member                                                   */ 
+/****************************************************************************/ 
+/****************************************************************************/  
+    "FREE FI(OUT)"   /* MXP */                                                  
+/****************************************************************************/  
+/* Displays the status of userid                                            */  
+/****************************************************************************/  
+    "ISPEXEC LMMSTATS DATAID("ID1") MEMBER("MEMBER")",                          
+    "USER("USRID")"                                                             
+    IF RC >0 THEN SAY ZERRLM                                                    
+END                                                                             
+"ISPEXEC LMCLOSE DATAID("ID1")" /* MXP */                                       
+"ISPEXEC LMFREE DATAID("ID1")"                                                  
+RETURN                                                                          
+                                                                                
+******************************** Bottom of Data ********************************
+
+
+
+
+
+Display Program:
+
+
+)ATTR                                                                        
+. TYPE(PT)                          /* PANEL TITLE */               */       
+% TYPE(ET)                          /* EMPHASIZED TEXT */           */       
++ TYPE(NT)  CAPS(ON)                /* NORMAL TEXT */               */       
+_ TYPE(NEF) CAPS(ON)                /* NORMAL ENTRY FIELD */        */       
+$ TYPE(AB)                          /* ACTION BAR */                */       
+@ TYPE(ABSL)                        /* ACTION BAR SEPARATOR LINE */ */       
+)ABC DESC(MENU)                                                              
+PDC DESC('AUTOMATE') ACTION RUN(AUTOMATE)                                    
+PDC DESC('END') ACTION RUN(END)                                              
+PDC DESC('CANCEL') ACTION RUN(CANCEL)                                        
+)ABCINIT                                                                     
+.ZVARS = 'MENUX'                                                             
+)ABC DESC(HELP)                                                              
+PDC DESC('EXTENDED HELP...')                                                 
+ACTION RUN(HELP)                                                             
+)ABCINIT                                                                     
+.ZVARS = HELPX                                                               
+.RESP = ENTER         /* DON'T EVEN SHOW CHOICE */   */                      
+)BODY                                                                        
++$ MENU $ HELP +                                                             
+@--------------------------------------------------------------------+           
+.********************** TC05 REFRESH - JCL UPDATES ***************************** 
++                                                                                
++%===>_ZCMD      +                                                               
++                                                                                
++ ENTER NEW DATASET NAME %===>_DSNAME                                            
++                                                                                
++ JOB NAME (EX: PL04VXM)         %===>_NJBNAME+                                  
++ PROGRAMMER (EX: TEJA MVS)      %===>_NPROGRAM            +                     
++ PROG INITIALS (EX: VXM)        %===>_NIN+                                      
++ DATE MMDD (EX: 0927)           %===>_MMDD+                                     
++ DATE MMMDD (EX: SEP27)         %===>_MMMDD+                                    
++                                                                                
++                                                                                
++                                                                                
++                                                                                
++                                                                                
++ PLEASE SELECT MENU TO AUTOMATE PROCESS                                         
+)INIT                                                                            
+)REINIT                                                                          
+   .CURSOR = &ZCMD                                 
+)PROC                                              
+      VER (&DSNAME,NB,DSNAME)                      
+      VER (&NJBNAME,NB)                            
+      VER (&NIN,NB)                                
+      VER (&NPROGRAM,NB)                           
+      VER (&MMDD,NB,NUM)                           
+      VER (&MMMDD,NB,PICT,'AAANN')                 
+)END                                               
+
+
+
+
+Display program 2:
+
+)ATTR DEFAULT(%+_)                                     
+@ TYPE(TEXT) SKIP(ON)                                  
+)BODY EXPAND(!!)                                       
+%!*! TC05 REFRESH - JCL UPDATES !*!                    
+%COMMAND ===>_ZCMD                                     
+%                                                      
++                                                      
++                                                      
++ ENTER NEW DATASET NAME %===>_DSNAME                  
++                                                      
++ JOB NAME (EX: PL04VXM)         %===>_NJBNAME+        
++ PROGRAMMER (EX: TEJA MVS)      %===>_NPROGRAM        
++ PROG INITIALS (EX: VXM)        %===>_NIN+            
++ DATE MMDD (EX: 0927)           %===>_MMDD+           
++ DATE MMMDD (EX: SEP27)         %===>_MMMDD+          
++                                                      
++                                                      
++                                                      
++                                                      
++                                                       
++ PLEASE ENTER TO AUTOMATE PROCESS                      
+)INIT                                                   
+)REINIT                                                 
+   .CURSOR = &ZCMD                                      
+)PROC                                                   
+      VER (&DSNAME,NB,DSNAME)                           
+      VER (&NJBNAME,NB)                                 
+      VER (&NIN,NB)                                     
+      VER (&NPROGRAM,NB)                                
+      VER (&MMDD,NB,NUM)                                
+      VER (&MMMDD,NB,PICT,'AAANN')                      
+)END                                                    
+
+                                                                        
